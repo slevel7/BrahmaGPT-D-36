@@ -1,0 +1,1 @@
+See [user guide](../../USER_GUIDE.md): documents → immutable version → human submission → distinct authorised reviewer → version-bound decision. Project and task operations persist immediately; local outreach never sends externally.
