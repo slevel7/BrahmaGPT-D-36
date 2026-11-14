@@ -97,7 +97,7 @@ This delivery is a working full-stack MVP with verified local workflows. **The c
 | Configurable disappearing chats / legal retention administration | Not implemented | Holds on by default; automatic deletion disabled |
 | Input/file/origin checks, rate limit, security headers | Implemented and tested | API origin checks and validation tests; production hardening in SECURITY.md |
 | Independent security/load/accessibility certification | Not implemented | MVP verification is not certification |
-| GitHub Actions | Implemented but not fully tested | SQLite/PostgreSQL, frontend and Chromium jobs configured; remote result pending push |
+| GitHub Actions | Implemented but not fully tested | SQLite/PostgreSQL, frontend and Chromium jobs configured; no remote run/status returned at the initial post-push check |
 
 ## Verification record
 
@@ -141,10 +141,21 @@ This delivery is a working full-stack MVP with verified local workflows. **The c
 
 ## Next incomplete work
 
-1. Commit delivery documentation/tests/CI, upload both milestones and record remote CI result.
+1. Verify remote CI when GitHub reports a run; initial connector queries returned no runs or commit statuses.
 2. Verify full Compose startup and PostgreSQL concurrency/pgvector semantics on a Docker-equipped host.
 3. Configure authorised live AI/embedding providers and evaluate grounding, multilingual text and failure/cancellation behavior.
 4. Implement project groups/discussions, member role management, task attachments/comments and conversation notes.
 5. Add voice/OCR/audio ingestion, authorised external integrations and secure provider configuration workflows only with suitable credentials.
 6. Complete localisation, advanced workflow resume, retention policy administration and remaining UI scope.
 7. Complete production security/identity/audit/storage/backup requirements before any sensitive deployment.
+
+## GitHub delivery record
+
+- Destination: https://github.com/slevel7/BrahmaGPT-D-36
+- Branch: `main`; original remote history preserved, no force push.
+- Application milestone: `56673cf`.
+- Tests/deployment/documentation milestone: `c31acea`.
+- Both milestones successfully pushed using Git's existing credential manager.
+- GitHub CLI was downloaded into ignored `.local` tools but is not authenticated. No token was requested or stored in source. The connected GitHub app confirmed repository push permission and was used for read-only status checks.
+- Repository was already public; its visibility was not changed.
+- Local working tree was clean after the implementation push. This record is a documentation follow-up.
