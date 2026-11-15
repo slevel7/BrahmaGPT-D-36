@@ -16,7 +16,6 @@ import {
   Bell,
   BookOpen,
   Check,
-  ChevronDown,
   ChevronRight,
   ClipboardList,
   Copy,
@@ -67,6 +66,8 @@ export default function Workspace() {
 type Row = Record<string, any>;
 type View =
   | "chat"
+  | "tasks"
+  | "department"
   | "projects"
   | "documents"
   | "outreach"
@@ -93,6 +94,8 @@ function Brand() {
 function App() {
   const qc = useQueryClient();
   const me = useQuery<Row>({ queryKey: ["me"], queryFn: () => api("/me") });
+  const [profileMenu, setProfileMenu] = useState(false);
+  const [profileSection, setProfileSection] = useState("My Profile");
   const [view, setView] = useState<View>("chat"),
     [mode, setMode] = useState("chat"),
     [collapsed, setCollapsed] = useState(false),
@@ -185,10 +188,10 @@ function App() {
   if (!signed) return <Login onLogin={() => qc.invalidateQueries()} />;
   const nav = [
     { key: "projects", label: t.projects, icon: FolderKanban },
-    { key: "customize", label: t.customize, icon: Settings2 },
+    { key: "department", label: "Department Work", icon: LayoutGrid },
     { key: "documents", label: t.documents, icon: FileText },
-    { key: "outreach", label: t.outreach, icon: AudioLines },
-    { key: "assistant", label: t.assistant, icon: Sparkles },
+    { key: "customize", label: t.customize, icon: Settings2 },
+    { key: "tasks", label: "My Tasks", icon: ClipboardList },
   ] as const;
   const selected = chats.data?.find((x) => x.id === chatId);
   return (
@@ -221,9 +224,6 @@ function App() {
             >
               <item.icon size={18} />
               <span>{item.label}</span>
-              {item.key === "assistant" && (
-                <span className="tiny-badge">AI</span>
-              )}
             </button>
           ))}
         </nav>
@@ -286,19 +286,62 @@ function App() {
             <ShieldCheck size={15} />
             <span>Human decisions. Assisted by AI.</span>
           </div>
-          <button className="profile-button" onClick={() => setView("profile")}>
-            <span className="avatar">
-              {me.data.name
-                .split(" ")
-                .map((n: string) => n[0])
-                .join("")}
-            </span>
-            <span>
-              <strong>{me.data.name}</strong>
-              <small>{me.data.designation}</small>
-            </span>
-            <ChevronDown size={14} />
-          </button>
+          <div
+            className="menu-wrap"
+            onMouseEnter={() => setProfileMenu(true)}
+            onMouseLeave={() => setProfileMenu(false)}
+          >
+            <button
+              className="profile-button"
+              aria-label="Account menu"
+              aria-expanded={profileMenu}
+              onClick={() => setProfileMenu(!profileMenu)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setProfileMenu(false);
+              }}
+            >
+              <span className="avatar">{me.data.name[0]}</span>
+            </button>
+            {profileMenu && (
+              <div className="account-menu" role="menu">
+                {[
+                  "My Profile",
+                  "Setup & Department Access",
+                  "Connected Apps",
+                  "AI & Models",
+                  "Security & Permissions",
+                  "Notifications",
+                  "Activity & Usage",
+                  "Preferences",
+                  "Help & Support",
+                ].map((section) => (
+                  <button
+                    role="menuitem"
+                    key={section}
+                    onClick={() => {
+                      setProfileSection(section);
+                      setView("profile");
+                      setProfileMenu(false);
+                    }}
+                  >
+                    {section}
+                  </button>
+                ))}
+                <button
+                  role="menuitem"
+                  onClick={() =>
+                    run(async () => {
+                      await api("/auth/logout", "POST");
+                      qc.clear();
+                      window.location.reload();
+                    })
+                  }
+                >
+                  Sign out
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </aside>
       <main className="main">
@@ -426,22 +469,6 @@ function App() {
         {view === "chat" ? (
           <>
             <div className="workspace-toolbar">
-              <div className="mode-switch">
-                <button
-                  className={mode === "chat" ? "active" : ""}
-                  onClick={() => setMode("chat")}
-                >
-                  <MessageSquare size={15} />
-                  {t.chat}
-                </button>
-                <button
-                  className={mode === "work" ? "active" : ""}
-                  onClick={() => setMode("work")}
-                >
-                  <LayoutGrid size={15} />
-                  {t.work}
-                </button>
-              </div>
               <div className="conversation-actions">
                 <span className="model-status">
                   <i />
@@ -562,6 +589,27 @@ function App() {
           </>
         ) : view === "documents" ? (
           <Documents {...shared} docs={docs.data || []} />
+        ) : view === "tasks" ? (
+          <div className="module-content">
+            <Tasks {...shared} />
+          </div>
+        ) : view === "department" ? (
+          <div className="module-content">
+            <PageHead
+              eyebrow="ACTIVE DEPARTMENT"
+              title="Department Work"
+              description="Internal work and human review in your active department."
+            />
+            <div className="button-row">
+              <Button onClick={() => setView("assistant")}>
+                Approvals & work overview
+              </Button>
+              <Button onClick={() => setView("outreach")}>
+                Outreach Agent
+              </Button>
+            </div>
+            <Work {...shared} />
+          </div>
         ) : view === "projects" ? (
           <Projects {...shared} />
         ) : view === "assistant" ? (
@@ -571,12 +619,22 @@ function App() {
         ) : view === "customize" ? (
           <Customize
             {...shared}
+            onOpen={(id) =>
+              setView(
+                id === "documents"
+                  ? "documents"
+                  : id === "whatsapp"
+                    ? "outreach"
+                    : "department",
+              )
+            }
             theme={theme}
             changePreference={changePreference}
           />
         ) : view === "profile" ? (
           <Profile
             {...shared}
+            section={profileSection}
             onLogout={() =>
               run(async () => {
                 await api("/auth/logout", "POST");
@@ -590,6 +648,25 @@ function App() {
           <Audit />
         ) : (
           <Help caps={caps.data || {}} />
+        )}
+        {[
+          "documents",
+          "projects",
+          "tasks",
+          "department",
+          "outreach",
+          "assistant",
+        ].includes(view) && (
+          <details className="contextual-brahma panel">
+            <summary>Brahma ? {view} context ? authorised sources only</summary>
+            <Chat
+              {...shared}
+              chatId={chatId}
+              setChatId={setChatId}
+              docs={docs.data || []}
+              onDocuments={() => setView("documents")}
+            />
+          </details>
         )}
         <footer className="app-footer">
           <span>
@@ -1194,6 +1271,11 @@ function Documents({ docs, ...props }: Shared & { docs: Row[] }) {
     queryFn: () => api(`/documents/${selected}`),
     enabled: !!selected,
   });
+  const evidence = useQuery<Row>({
+    queryKey: ["draft-evidence", selected, detail.data?.versions?.[0]?.id],
+    queryFn: () => api(`/documents/${selected}/evidence`),
+    enabled: !!selected,
+  });
   const [reviewer, setReviewer] = useState("");
   const filtered = docs.filter((doc) =>
     tab === "mine"
@@ -1239,6 +1321,26 @@ function Documents({ docs, ...props }: Shared & { docs: Row[] }) {
           </Button>
         </div>
       </PageHead>
+      {selected && evidence.data?.citations && (
+        <section className="panel" aria-label="Validated source evidence">
+          <h3>Version-bound source evidence</h3>
+          <p>
+            {evidence.data.recommendations || "No recommendations supplied."}
+          </p>
+          {evidence.data.citations.map((c: Row, i: number) => (
+            <details key={c.chunk_id}>
+              <summary>
+                [{i + 1}] {c.title} ? v{c.version_number} ?{" "}
+                {c.page ? `page ${c.page}` : "not paginated"} ? passage{" "}
+                {c.chunk_id}
+              </summary>
+              <blockquote>{c.passage}</blockquote>
+              <small>SHA256: {c.sha256}</small>
+            </details>
+          ))}
+        </section>
+      )}
+      <GroundedDraftForm {...props} onCreated={setSelected} docs={docs} />
       {showGenerate && (
         <GenerateForm
           {...props}
@@ -2411,6 +2513,7 @@ function Customize(
   props: Shared & {
     theme: string;
     changePreference: (language: Language, theme?: string) => Promise<void>;
+    onOpen: (id: string) => void;
   },
 ) {
   const [search, setSearch] = useState(""),
@@ -2457,6 +2560,10 @@ function Customize(
         "Speech provider not configured. Manual transcripts available.",
     },
   ];
+  const recents = useQuery<Row[]>({
+    queryKey: ["recent-tools"],
+    queryFn: () => api("/me/tools/recent"),
+  });
   const pinned: string[] = props.user.preferences?.pinned_tools || [];
   return (
     <div className="module-content">
@@ -2467,17 +2574,22 @@ function Customize(
       />
       <div className="filter-row">
         <div className="tabs">
-          {["Recommended", "Most Used", "Legacy Systems", "All Tools"].map(
-            (c) => (
-              <button
-                key={c}
-                className={category === c ? "active" : ""}
-                onClick={() => setCategory(c)}
-              >
-                {c}
-              </button>
-            ),
-          )}
+          {[
+            "Recommended",
+            "Favourites",
+            "Recently Used",
+            "All Tools",
+            "Connected Tools",
+            "Department Tools",
+          ].map((c) => (
+            <button
+              key={c}
+              className={category === c ? "active" : ""}
+              onClick={() => setCategory(c)}
+            >
+              {c}
+            </button>
+          ))}
         </div>
         <input
           aria-label="Search tools"
@@ -2486,9 +2598,18 @@ function Customize(
           onChange={(e) => setSearch(e.target.value)}
         />
       </div>
-      {category === "Most Used" && (
-        <p className="muted">
-          Pinned shortcuts are shown here. Usage ranking is not yet implemented.
+      {category === "Recently Used" && (
+        <Button
+          variant="outline"
+          onClick={() => props.run(() => api("/me/tools/recent", "DELETE"))}
+        >
+          Clear recent tools
+        </Button>
+      )}
+      {category === "Connected Tools" && (
+        <p>
+          No live external tools are connected. Configure approved providers in
+          Profile. Demo simulators are listed under Department Tools.
         </p>
       )}
       <div className="project-grid">
@@ -2497,7 +2618,11 @@ function Customize(
             (tool) =>
               tool.name.toLowerCase().includes(search.toLowerCase()) &&
               (category === "All Tools" ||
-                (category === "Most Used" && pinned.includes(tool.id)) ||
+                (category === "Favourites" && pinned.includes(tool.id)) ||
+                (category === "Recently Used" &&
+                  !!recents.data?.some((r) => r.id === tool.id)) ||
+                (category === "Department Tools" &&
+                  ["eoffice", "legacy_systems"].includes(tool.id)) ||
                 tool.category === category),
           )
           .map((tool) => (
@@ -2511,6 +2636,20 @@ function Customize(
                 {props.caps[tool.id] || "Available locally"}
               </span>
               <div className="button-row">
+                {tool.id !== "speech_recognition" && (
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      props.run(async () => {
+                        await api(`/me/tools/${tool.id}/open`, "POST");
+                        props.onOpen(tool.id);
+                      })
+                    }
+                  >
+                    Open{" "}
+                    {tool.id === "documents" ? "workspace" : "demo workflow"}
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="outline"
@@ -2604,7 +2743,11 @@ function Customize(
 }
 
 function Profile(
-  props: Shared & { onLogout: () => void; onAudit: () => void },
+  props: Shared & {
+    onLogout: () => void;
+    onAudit: () => void;
+    section: string;
+  },
 ) {
   const [name, setName] = useState(props.user.name),
     [phone, setPhone] = useState(props.user.phone),
@@ -2617,11 +2760,29 @@ function Profile(
     queryKey: ["analytics"],
     queryFn: () => api("/analytics"),
   });
+  const [activityQuery, setActivityQuery] = useState("");
+  const activity = useQuery<Row[]>({
+    queryKey: ["own-activity", activityQuery],
+    queryFn: () => api(`/me/activity?q=${encodeURIComponent(activityQuery)}`),
+    enabled: props.section === "Activity & Usage",
+  });
+  const savePreferences = (changes: Row) =>
+    props.run(
+      () =>
+        api("/me/preferences", "PUT", {
+          language: props.user.preferences?.language || "en",
+          theme: props.user.preferences?.theme || "system",
+          pinned_tools: props.user.preferences?.pinned_tools || [],
+          notifications: props.user.preferences?.notifications !== false,
+          ...changes,
+        }),
+      "Preferences saved.",
+    );
   return (
     <div className="module-content">
       <PageHead
         eyebrow="YOUR ACCOUNT"
-        title={props.t.profile}
+        title={props.section}
         description="Manage your details, preferences, and active sessions."
       >
         <Button variant="outline" onClick={props.onLogout}>
@@ -2629,82 +2790,179 @@ function Profile(
           {props.t.logout}
         </Button>
       </PageHead>
-      <form
-        className="card form-card"
-        onSubmit={(e) => {
-          e.preventDefault();
-          props.run(
-            () => api("/me", "PATCH", { name, phone, designation }),
-            "Profile saved.",
-          );
-        }}
-      >
-        <div className="form-grid">
-          <label>
-            Name
-            <input
-              value={name}
-              required
-              onChange={(e) => setName(e.target.value)}
-            />
-          </label>
-          <label>
-            Phone
-            <input value={phone} onChange={(e) => setPhone(e.target.value)} />
-          </label>
-          <label>
-            Designation
-            <input
-              value={designation}
-              onChange={(e) => setDesignation(e.target.value)}
-            />
-          </label>
-        </div>
-        <p>
-          {props.user.email} · Role: {props.user.role} · Department #
-          {props.user.department_id}
-        </p>
-        <Button disabled={props.busy}>{props.t.save}</Button>
-      </form>
-      <section className="card form-card">
-        <h3>Account security</h3>
-        <p>
-          Password reset is available on the sign-in screen. Passkeys are not
-          configured.
-        </p>
-        <h4>Active sessions</h4>
-        {sessions.data?.map((s) => (
-          <div className="version-row" key={s.reference}>
-            <span>
-              Session {s.reference}
-              <small>
-                Expires {new Date(s.expires_at + "Z").toLocaleString()}
-              </small>
-            </span>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() =>
-                props.run(() => api(`/me/sessions/${s.reference}`, "DELETE"))
-              }
-            >
-              Revoke
-            </Button>
+      {props.section === "My Profile" && (
+        <form
+          className="card form-card"
+          onSubmit={(e) => {
+            e.preventDefault();
+            props.run(
+              () => api("/me", "PATCH", { name, phone, designation }),
+              "Profile saved.",
+            );
+          }}
+        >
+          <div className="form-grid">
+            <label>
+              Name
+              <input
+                value={name}
+                required
+                onChange={(e) => setName(e.target.value)}
+              />
+            </label>
+            <label>
+              Phone
+              <input value={phone} onChange={(e) => setPhone(e.target.value)} />
+            </label>
+            <label>
+              Designation
+              <input
+                value={designation}
+                onChange={(e) => setDesignation(e.target.value)}
+              />
+            </label>
           </div>
-        ))}
-        <h4>AI usage</h4>
-        <p>
-          {stats.data?.ai_requests || 0} model requests ·{" "}
-          {stats.data?.tokens || 0} provider-reported tokens
-        </p>
-        {["department_admin", "super_admin", "auditor"].includes(
-          props.user.role,
-        ) && (
-          <Button variant="outline" onClick={props.onAudit}>
-            View department audit log
-          </Button>
-        )}
-      </section>
+          <p>
+            {props.user.email} · Role: {props.user.role} · Department #
+            {props.user.department_id}
+          </p>
+          <Button disabled={props.busy}>{props.t.save}</Button>
+        </form>
+      )}
+      {props.section === "Help & Support" && <Help caps={props.caps} />}
+      {props.section === "Setup & Department Access" && (
+        <section className="card form-card">
+          <h3>Current authorised workspace</h3>
+          <p>
+            Department #{props.user.department_id} ? Role: {props.user.role}
+          </p>
+          <p>
+            Additional department requests, divisions and temporary membership
+            are not implemented. Contact your administrator to provision
+            authorised access.
+          </p>
+        </section>
+      )}
+      {props.section === "Connected Apps" && (
+        <section className="card form-card">
+          <h3>Connection capabilities</h3>
+          <p>
+            Live OAuth connection management is not configured. Existing
+            internal demo adapters do not connect to government systems.
+          </p>
+          {Object.entries(props.caps)
+            .filter(([, v]) => typeof v === "string")
+            .map(([key, value]) => (
+              <p key={key}>
+                <strong>{key}</strong>: {String(value)}
+              </p>
+            ))}
+        </section>
+      )}
+      {props.section === "Activity & Usage" && (
+        <section className="card form-card">
+          <label>
+            Filter your activity
+            <input
+              value={activityQuery}
+              onChange={(e) => setActivityQuery(e.target.value)}
+            />
+          </label>
+          {activity.error && <p role="alert">{activity.error.message}</p>}
+          {activity.data?.map((a) => (
+            <p key={a.id}>
+              {a.action} ? {a.resource} ? {a.created_at}
+            </p>
+          ))}
+        </section>
+      )}
+      {props.section === "Notifications" && (
+        <section className="card form-card">
+          <label>
+            <input
+              type="checkbox"
+              checked={props.user.preferences?.notifications !== false}
+              onChange={(e) =>
+                savePreferences({ notifications: e.target.checked })
+              }
+            />{" "}
+            In-app notifications
+          </label>
+          <p>
+            Email, per-module preferences and quiet hours require additional
+            implementation.
+          </p>
+        </section>
+      )}
+      {props.section === "Preferences" && (
+        <section className="card form-card">
+          <label>
+            Theme
+            <select
+              aria-label="Theme"
+              value={props.user.preferences?.theme || "system"}
+              onChange={(e) => savePreferences({ theme: e.target.value })}
+            >
+              {["light", "dark", "system"].map((t) => (
+                <option key={t}>{t}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Language
+            <select
+              aria-label="Profile language"
+              value={props.language}
+              onChange={(e) => savePreferences({ language: e.target.value })}
+            >
+              {["en", "as", "hi"].map((l) => (
+                <option key={l}>{l}</option>
+              ))}
+            </select>
+          </label>
+        </section>
+      )}
+      {["Security & Permissions", "AI & Models"].includes(props.section) && (
+        <section className="card form-card">
+          <h3>Account security</h3>
+          <p>
+            Password reset is available on the sign-in screen. Passkeys are not
+            configured.
+          </p>
+          <h4>Active sessions</h4>
+          {sessions.data?.map((s) => (
+            <div className="version-row" key={s.reference}>
+              <span>
+                Session {s.reference}
+                <small>
+                  Expires {new Date(s.expires_at + "Z").toLocaleString()}
+                </small>
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  props.run(() => api(`/me/sessions/${s.reference}`, "DELETE"))
+                }
+              >
+                Revoke
+              </Button>
+            </div>
+          ))}
+          <h4>AI usage</h4>
+          <p>
+            {stats.data?.ai_requests || 0} model requests ·{" "}
+            {stats.data?.tokens || 0} provider-reported tokens
+          </p>
+          {["department_admin", "super_admin", "auditor"].includes(
+            props.user.role,
+          ) && (
+            <Button variant="outline" onClick={props.onAudit}>
+              View department audit log
+            </Button>
+          )}
+        </section>
+      )}
     </div>
   );
 }
@@ -2773,5 +3031,168 @@ function Help({ caps }: { caps: Row }) {
         </div>
       </section>
     </div>
+  );
+}
+
+function GroundedDraftForm(
+  props: Shared & { onCreated: (id: number) => void; docs: Row[] },
+) {
+  const [useAI, setUseAI] = useState(false);
+  const [title, setTitle] = useState("");
+  const [query, setQuery] = useState("");
+  const [template, setTemplate] = useState("");
+  const [sources, setSources] = useState<number[]>([]);
+  const [reviewers, setReviewers] = useState<number[]>([]);
+  const [recommendations, setRecommendations] = useState("");
+  return (
+    <details className="panel">
+      <summary>Source-grounded Brahma drafting</summary>
+      <p>
+        Extractive drafting uses exact authorised passages and an approved
+        template. Human review is required. AI evidence selection is optional;
+        default mode uses no LLM.
+      </p>
+      <form
+        className="form-stack"
+        onSubmit={(e) => {
+          e.preventDefault();
+          props.run(async () => {
+            const doc = await api("/documents/grounded-draft", "POST", {
+              title,
+              use_ai: useAI,
+              query,
+              template_id: Number(template),
+              document_ids: sources,
+              reviewer_ids: reviewers,
+              recommendations,
+            });
+            props.onCreated(doc.id);
+          }, "Grounded draft created. Review the version-bound source evidence before submission.");
+        }}
+      >
+        <label>
+          <input
+            type="checkbox"
+            checked={useAI}
+            disabled={
+              props.caps.grounded_ai !== "admin policy enabled" ||
+              props.caps.ai !== "configured"
+            }
+            onChange={(e) => setUseAI(e.target.checked)}
+          />{" "}
+          Use configured Brahma AI to select evidence
+        </label>
+        <p>
+          AI selection requires configured credentials and explicit
+          administrator approval to send authorised passages to the provider.
+          The model cannot supply factual prose or citation identifiers outside
+          the retrieved evidence.
+        </p>
+        <label>
+          Draft title
+          <input
+            required
+            maxLength={200}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+        </label>
+        <label>
+          Approved template
+          <select
+            aria-label="Approved template"
+            required
+            value={template}
+            onChange={(e) => setTemplate(e.target.value)}
+          >
+            <option value="">Select template</option>
+            {props.docs
+              .filter(
+                (d) => d.status === "Approved" && d.tags.includes("template"),
+              )
+              .map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.title}
+                </option>
+              ))}
+          </select>
+        </label>
+        <p>
+          Tag a document with template and obtain human approval to enable it here.
+          Supported placeholders: {"{{title}}"} and {"{{sources}}"}.
+        </p>
+        <label>
+          Evidence search query
+          <input
+            required
+            maxLength={1000}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </label>
+        <label>
+          Source documents
+          <select
+            aria-label="Source documents"
+            multiple
+            required
+            value={sources.map(String)}
+            onChange={(e) =>
+              setSources(
+                Array.from(e.target.selectedOptions, (o) => Number(o.value)),
+              )
+            }
+          >
+            {props.docs.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Human review sequence
+          <select
+            aria-label="Human review sequence"
+            multiple
+            required
+            value={reviewers.map(String)}
+            onChange={(e) =>
+              setReviewers(
+                Array.from(e.target.selectedOptions, (o) => Number(o.value)),
+              )
+            }
+          >
+            {props.users
+              .filter(
+                (u) =>
+                  u.id !== props.user.id &&
+                  ["approver", "department_admin", "super_admin"].includes(
+                    u.role,
+                  ),
+              )
+              .map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name}
+                </option>
+              ))}
+          </select>
+        </label>
+        <p>
+          {reviewers
+            .map((id) => props.users.find((u) => u.id === id)?.name)
+            .join(" -> ")}
+        </p>
+        <label>
+          Recommendations (unsupported until human verification)
+          <textarea
+            maxLength={10000}
+            value={recommendations}
+            onChange={(e) => setRecommendations(e.target.value)}
+          />
+        </label>
+        <Button disabled={props.busy}>Create grounded DOCX draft</Button>
+      </form>
+    </details>
   );
 }

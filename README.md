@@ -102,3 +102,7 @@ Originals and conversations carry retention holds. No automatic record deletion 
 Preserve remote history; never force-push. Review `git diff`, stage explicit source paths, run `python scripts/secret_scan.py`, commit a logical milestone and push to the authorised repository. `.gitignore` excludes secrets, uploads, local databases and generated private files. Never commit real government data. Read [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Further documentation: [architecture](ARCHITECTURE.md), [schema](DATABASE_SCHEMA.md), [API](API_REFERENCE.md), [setup](SETUP_GUIDE.md), [user guide](USER_GUIDE.md).
+
+## Grounded drafting extension
+
+The feature branch adds approved-template extractive drafting, exact source evidence, immutable revisions with provenance, and configurable sequential human review. It also updates navigation and adds account activity and tool recents. See [grounded drafting guide](docs/GROUNDED_DRAFTING.md) and the [current feature matrix](docs/FEATURE_MATRIX.md). These explicitly identify remaining master-specification gaps; this is not a claim that all modules are complete.

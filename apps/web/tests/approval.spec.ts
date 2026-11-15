@@ -27,7 +27,7 @@ test("human officer reviews the exact submitted draft", async ({ page }) => {
     "Submitted for human review.",
   );
   await page.locator(".profile-button").click();
-  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
   await page.getByLabel("Demo role").selectOption("approver@demo.invalid");
   await page.getByRole("button", { name: "Enter demonstration" }).click();
   await page
@@ -39,7 +39,9 @@ test("human officer reviews the exact submitted draft", async ({ page }) => {
   await page
     .getByRole("button", { name: "Notifications", exact: true })
     .click();
-  await page.getByRole("button", { name: "Work", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Department Work", exact: true })
+    .click();
   page.once("dialog", (dialog) => dialog.accept("Verified synthetic facts."));
   await page
     .getByRole("button", { name: "Approved", exact: true })
@@ -67,7 +69,7 @@ test("mobile navigation remains usable", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Enter demonstration" }).click();
   await expect(
-    page.getByRole("heading", { name: "A clearer path through your work." }),
+    page.getByRole("heading", { name: "How can Brahma help?" }),
   ).toBeVisible();
   await page.screenshot({
     path: "../../.local/screenshots/chat-mobile.png",

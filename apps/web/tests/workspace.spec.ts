@@ -4,7 +4,7 @@ async function login(page: Page, role = "employee") {
   await page.getByLabel("Demo role").selectOption(`${role}@demo.invalid`);
   await page.getByRole("button", { name: "Enter demonstration" }).click();
   await expect(
-    page.getByRole("heading", { name: "A clearer path through your work." }),
+    page.getByRole("heading", { name: "How can Brahma help?" }),
   ).toBeVisible();
 }
 test("chat, documents, task persistence, language and simulation", async ({
@@ -66,7 +66,7 @@ test("chat, documents, task persistence, language and simulation", async ({
   ).toBeVisible();
   await page
     .getByRole("navigation", { name: "Workspace" })
-    .getByRole("button", { name: "Brahma assistant" })
+    .getByRole("button", { name: "My Tasks" })
     .click();
   await page.getByRole("button", { name: "Create task", exact: true }).click();
   await page
@@ -82,7 +82,7 @@ test("chat, documents, task persistence, language and simulation", async ({
   await page.reload();
   await page
     .getByRole("navigation", { name: "Workspace" })
-    .getByRole("button", { name: "Brahma assistant" })
+    .getByRole("button", { name: "My Tasks" })
     .click();
   await expect(
     page.getByText("Browser persistence task", { exact: true }),
@@ -96,6 +96,9 @@ test("chat, documents, task persistence, language and simulation", async ({
   await page.getByLabel("ভাষা", { exact: true }).selectOption("en");
   await page
     .getByRole("navigation")
+    .getByRole("button", { name: "Department Work", exact: true })
+    .click();
+  await page
     .getByRole("button", { name: "Outreach Agent", exact: true })
     .click();
   await page.getByLabel("Campaign title").fill("Browser synthetic outreach");

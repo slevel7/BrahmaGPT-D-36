@@ -2032,3 +2032,9 @@ input[type="checkbox"] {
     font-size: 12px;
   }
 }
+
+.account-menu { position: absolute; bottom: 100%; left: 0; width: 260px; background: var(--surface, #fff); color: var(--text, #17212b); border: 1px solid #8b939c; border-radius: 12px; padding: 8px; z-index: 50; box-shadow: 0 8px 32px #0003; }
+.account-menu button { display: block; width: 100%; text-align: left; padding: 9px 12px; border-radius: 6px; }
+.account-menu button:hover, .account-menu button:focus-visible { background: #8998aa33; }
+.sidebar-bottom .profile-button { width: auto; }
+.contextual-brahma { margin: 16px; }
