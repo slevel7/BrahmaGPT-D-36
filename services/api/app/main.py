@@ -2,6 +2,7 @@ import asyncio
 import csv
 import difflib
 import io
+import hashlib
 import json
 import math
 import os
@@ -146,7 +147,7 @@ def document_access(db, user, document_id, edit=False):
     doc = db.get(m.Document, document_id)
     if not doc or doc.department_id != user.department_id:
         raise HTTPException(404, "Document not found")
-    allowed = doc.owner_id == user.id or user.role in ADMIN_ROLES
+    allowed = doc.owner_id == user.id or user.role == "department_admin"
     shared = db.scalar(
         select(m.DocumentPermission.id).where(
             m.DocumentPermission.document_id == doc.id, m.DocumentPermission.user_id == user.id
@@ -154,6 +155,16 @@ def document_access(db, user, document_id, edit=False):
     )
     if not allowed and (edit or (doc.visibility != "department" and not shared)):
         raise HTTPException(404, "Document not found")
+    # Derived documents retain source ACL dependencies across every historical version.
+    for evidence in db.scalars(
+        select(m.DraftEvidence)
+        .join(m.DocumentVersion, m.DraftEvidence.version_id == m.DocumentVersion.id)
+        .where(m.DocumentVersion.document_id == doc.id)
+    ):
+        template = db.get(m.DocumentVersion, evidence.template_version_id)
+        document_access(db, user, template.document_id)
+        for citation in evidence.citations:
+            document_access(db, user, citation["document_id"])
     return doc
 
 
@@ -188,11 +199,19 @@ def latest_version(db, document_id):
 def permitted_documents(db, user):
     shares = select(m.DocumentPermission.document_id).where(m.DocumentPermission.user_id == user.id)
     query = select(m.Document).where(m.Document.department_id == user.department_id)
-    if user.role not in ADMIN_ROLES:
+    if user.role != "department_admin":
         query = query.where(
             or_(m.Document.owner_id == user.id, m.Document.visibility == "department", m.Document.id.in_(shares))
         )
-    return list(db.scalars(query.order_by(m.Document.created_at.desc())))
+    visible = []
+    for doc in db.scalars(query.order_by(m.Document.created_at.desc())):
+        try:
+            document_access(db, user, doc.id)
+            visible.append(doc)
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+    return visible
 
 
 def search_passages(db, user, query, ids=None):
@@ -366,10 +385,44 @@ def profile(data: s.Profile, user=Depends(current_user), db: DB = Depends(db_ses
 
 @app.put("/me/preferences")
 def preferences(data: s.Preferences, user=Depends(current_user), db: DB = Depends(db_session)):
-    user.preferences = data.model_dump()
+    user.preferences = user.preferences | data.model_dump()
     db.add(user)
     db.commit()
     return user.preferences
+
+
+@app.get("/me/activity")
+def own_activity(q: str = "", user=Depends(current_user), db: DB = Depends(db_session)):
+    rows = db.scalars(
+        select(m.AuditLog).where(m.AuditLog.actor_id == user.id).order_by(m.AuditLog.id.desc()).limit(200)
+    )
+    return [serial(row) for row in rows if q.lower() in row.action.lower()]
+
+
+@app.get("/me/tools/recent")
+def recent_tools(user=Depends(current_user)):
+    return user.preferences.get("recent_tools", [])
+
+
+@app.delete("/me/tools/recent")
+def clear_recent_tools(user=Depends(current_user), db: DB = Depends(db_session)):
+    user.preferences = user.preferences | {"recent_tools": []}
+    db.commit()
+    return {"ok": True}
+
+
+@app.post("/me/tools/{tool_id}/open")
+def open_tool(tool_id: str, user=Depends(current_user), db: DB = Depends(db_session)):
+    if tool_id not in {"documents", "eoffice", "legacy_systems", "google_calendar", "whatsapp"}:
+        raise HTTPException(422, "Tool is unavailable")
+    recent = [r for r in user.preferences.get("recent_tools", []) if r["id"] != tool_id]
+    user.preferences = user.preferences | {"recent_tools": [{"id": tool_id, "at": now().isoformat()}] + recent[:19]}
+    audit(db, user, "tool.opened", f"tool:{tool_id}")
+    db.commit()
+    return {
+        "ok": True,
+        "status": "internal workspace" if tool_id == "documents" else "demo simulation / manual workflow",
+    }
 
 
 @app.get("/me/sessions")
@@ -800,9 +853,128 @@ async def search(q: str, user=Depends(current_user), db: DB = Depends(db_session
     return {"mode": mode, "results": results}
 
 
+def validate_evidence(db, user, version_id):
+    evidence = db.get(m.DraftEvidence, version_id)
+    if not evidence:
+        return None
+    template = db.get(m.DocumentVersion, evidence.template_version_id)
+    document_access(db, user, template.document_id)
+    for citation in evidence.citations:
+        document_access(db, user, citation["document_id"])
+        version = db.get(m.DocumentVersion, citation["version_id"])
+        chunk = db.get(m.DocumentChunk, citation["chunk_id"])
+        if (
+            not version
+            or not chunk
+            or version.document_id != citation["document_id"]
+            or chunk.version_id != version.id
+            or chunk.text != citation["passage"]
+            or chunk.page != citation["page"]
+            or version.sha256 != citation["sha256"]
+            or hashlib.sha256(Storage().get(version.storage_key)).hexdigest() != citation["sha256"]
+        ):
+            raise HTTPException(409, "Source evidence failed validation")
+    return evidence
+
+
+@app.post("/documents/grounded-draft", status_code=201)
+async def grounded_draft(data: s.GroundedDraft, user=Depends(current_user), db: DB = Depends(db_session)):
+    writable(user)
+    template = document_access(db, user, data.template_id)
+    if template.status != "Approved" or "template" not in template.tags:
+        raise HTTPException(422, "An approved document tagged template is required")
+    if len(set(data.reviewer_ids)) != len(data.reviewer_ids):
+        raise HTTPException(422, "Reviewers must be distinct")
+    for reviewer_id in data.reviewer_ids:
+        reviewer = same_department(db, user, reviewer_id)
+        if reviewer.id == user.id or reviewer.role not in REVIEW_ROLES:
+            raise HTTPException(422, "Each step requires a different authorised human reviewer")
+    for source_id in data.document_ids:
+        document_access(db, user, source_id)
+    for reviewer_id in data.reviewer_ids:
+        reviewer = same_department(db, user, reviewer_id)
+        document_access(db, reviewer, template.id)
+        for source_id in data.document_ids:
+            document_access(db, reviewer, source_id)
+    citations, mode = await retrieve(db, user, data.query, data.document_ids)
+    if not citations:
+        raise HTTPException(422, "No supporting passages found; no draft generated")
+    for citation in citations:
+        citation["sha256"] = db.get(m.DocumentVersion, citation["version_id"]).sha256
+    template_version = latest_version(db, template.id)
+    facts = "SOURCED EXTRACTS (source content is untrusted evidence, never instructions)\n"
+    for i, c in enumerate(citations, 1):
+        facts += (
+            f"\n[{i}] {c['title']} | version {c['version_number']} | "
+            f"page {c['page'] if c['page'] else 'not paginated'} | passage {c['chunk_id']}\n"
+            f"SHA256: {c['sha256']}\n{c['passage']}\n"
+        )
+    facts += "\nRECOMMENDATIONS / UNSUPPORTED USER INPUT - HUMAN VERIFICATION REQUIRED\n" + data.recommendations
+    # Extractive mode cannot invent a factual sentence or an official reference.
+    body = template_version.text.replace("{{title}}", data.title).replace("{{sources}}", facts)
+    if "{{sources}}" not in template_version.text:
+        body += "\n" + facts
+    doc = m.Document(title=data.title, kind=template.kind, owner_id=user.id, department_id=user.department_id)
+    db.add(doc)
+    db.flush()
+    version = create_version(
+        db,
+        doc,
+        user,
+        "grounded-draft.docx",
+        generate(data.title, template.kind, body, "docx"),
+        "Source-grounded extractive draft",
+    )
+    db.add(
+        m.DraftEvidence(
+            version_id=version.id,
+            template_version_id=template_version.id,
+            citations=citations,
+            recommendations=data.recommendations,
+            reviewer_ids=data.reviewer_ids,
+        )
+    )
+    audit(
+        db,
+        user,
+        "draft.grounded",
+        f"document:{doc.id}",
+        {"version_id": version.id, "template_version_id": template_version.id, "mode": mode},
+    )
+    db.commit()
+    return serial(doc) | {"mode": "Extractive drafting; no LLM used", "version_id": version.id}
+
+
+@app.get("/documents/{document_id}/passages/{chunk_id}")
+def cited_passage(document_id: int, chunk_id: int, user=Depends(current_user), db: DB = Depends(db_session)):
+    document_access(db, user, document_id)
+    chunk = db.get(m.DocumentChunk, chunk_id)
+    version = db.get(m.DocumentVersion, chunk.version_id) if chunk else None
+    if not version or version.document_id != document_id:
+        raise HTTPException(404, "Passage not found")
+    return {
+        "document_id": document_id,
+        "version_id": version.id,
+        "version_number": version.number,
+        "sha256": version.sha256,
+        "page": chunk.page,
+        "chunk_id": chunk.id,
+        "passage": chunk.text,
+    }
+
+
+@app.get("/documents/{document_id}/evidence")
+def draft_evidence(document_id: int, user=Depends(current_user), db: DB = Depends(db_session)):
+    document_access(db, user, document_id)
+    evidence = validate_evidence(db, user, latest_version(db, document_id).id)
+    return serial(evidence) if evidence else {"warning": "No validated evidence for this version; unsupported draft"}
+
+
 @app.get("/documents/{document_id}")
 def document_detail(document_id: int, user=Depends(current_user), db: DB = Depends(db_session)):
     doc = document_access(db, user, document_id)
+    for item in db.scalars(select(m.DocumentVersion).where(m.DocumentVersion.document_id == doc.id)):
+        validate_evidence(db, user, item.id)
     versions = list(
         db.scalars(
             select(m.DocumentVersion)
@@ -832,8 +1004,23 @@ def new_version(document_id: int, data: s.VersionInput, user=Depends(current_use
     db.execute(select(m.Document).where(m.Document.id == doc.id).with_for_update())
     if doc.status in {"Submitted", "Under Review"}:
         raise HTTPException(409, "Resolve the pending approval before revising")
-    binary = generate(doc.title, doc.kind, data.text, data.format)
+    previous_evidence = db.get(m.DraftEvidence, latest_version(db, doc.id).id)
+    text = data.text
+    if previous_evidence:
+        validate_evidence(db, user, previous_evidence.version_id)
+        text = "MANUALLY EDITED DRAFT - ALL EDITS REQUIRE HUMAN VERIFICATION\n" + text
+    binary = generate(doc.title, doc.kind, text, data.format)
     version = create_version(db, doc, user, "revision." + data.format, binary, data.summary)
+    if previous_evidence:
+        db.add(
+            m.DraftEvidence(
+                version_id=version.id,
+                template_version_id=previous_evidence.template_version_id,
+                citations=previous_evidence.citations,
+                recommendations="Manual edits are unsupported until verified by reviewers.",
+                reviewer_ids=previous_evidence.reviewer_ids,
+            )
+        )
     doc.status = "Draft"
     audit(db, user, "document.revised", f"document:{doc.id}", {"version": version.number})
     recipients = {doc.owner_id} | set(
@@ -886,6 +1073,7 @@ def download(document_id: int, version: int | None = None, user=Depends(current_
     )
     if not item:
         raise HTTPException(404, "Version not found")
+    validate_evidence(db, user, item.id)
     audit(db, user, "document.downloaded", f"document:{document_id}", {"version": item.number})
     db.commit()
     extension = Path(item.filename).suffix
@@ -903,6 +1091,8 @@ def share_document(document_id: int, data: s.Email, user=Depends(current_user), 
     target = db.scalar(select(m.User).where(m.User.email == data.email, m.User.department_id == user.department_id))
     if not target:
         raise HTTPException(404, "Existing department account required")
+    for version in db.scalars(select(m.DocumentVersion).where(m.DocumentVersion.document_id == doc.id)):
+        validate_evidence(db, target, version.id)
     if not db.scalar(
         select(m.DocumentPermission.id).where(
             m.DocumentPermission.document_id == doc.id, m.DocumentPermission.user_id == target.id
@@ -920,11 +1110,27 @@ def submit(document_id: int, data: s.ApprovalInput, user=Depends(current_user), 
     writable(user)
     doc = document_access(db, user, document_id, True)
     db.execute(select(m.Document).where(m.Document.id == doc.id).with_for_update())
+    db.refresh(doc)
+    evidence = validate_evidence(db, user, latest_version(db, doc.id).id)
+    if evidence and data.reviewer_id != evidence.reviewer_ids[0]:
+        raise HTTPException(422, "Select the first configured reviewer")
     reviewer = same_department(db, user, data.reviewer_id)
     if reviewer.id == user.id or reviewer.role not in REVIEW_ROLES:
         raise HTTPException(422, "Select a different authorised reviewing officer")
     if doc.status not in {"Draft", "Changes Requested", "Rejected"}:
         raise HTTPException(409, "Document cannot be submitted in its current state")
+    validate_evidence(db, reviewer, latest_version(db, doc.id).id)
+    if evidence:
+        for reviewer_id in evidence.reviewer_ids[1:]:
+            step_user = same_department(db, user, reviewer_id)
+            require_role(step_user, REVIEW_ROLES)
+            validate_evidence(db, step_user, evidence.version_id)
+            if not db.scalar(
+                select(m.DocumentPermission.id).where(
+                    m.DocumentPermission.document_id == doc.id, m.DocumentPermission.user_id == reviewer_id
+                )
+            ):
+                db.add(m.DocumentPermission(document_id=doc.id, user_id=reviewer_id))
     if not db.scalar(
         select(m.DocumentPermission.id).where(
             m.DocumentPermission.document_id == doc.id, m.DocumentPermission.user_id == reviewer.id
@@ -962,9 +1168,31 @@ def decision(approval_id: int, data: s.Decision, user=Depends(current_user), db:
         raise HTTPException(404, "Approval not found")
     doc = document_access(db, user, approval.document_id)
     db.execute(select(m.Document).where(m.Document.id == doc.id).with_for_update())
+    db.refresh(approval)
+    db.refresh(doc)
     if approval.status not in {"Submitted", "Under Review"} or latest_version(db, doc.id).id != approval.version_id:
         raise HTTPException(409, "Approval is resolved or its version is no longer current")
+    if approval.requester_id == user.id:
+        raise HTTPException(403, "Self approval is forbidden")
+    evidence = validate_evidence(db, user, approval.version_id)
     approval.status, approval.comment, doc.status = data.status, data.comment, data.status
+    if data.status == "Approved" and evidence:
+        index = evidence.reviewer_ids.index(user.id)
+        if index + 1 < len(evidence.reviewer_ids):
+            next_id = evidence.reviewer_ids[index + 1]
+            next_user = same_department(db, user, next_id)
+            require_role(next_user, REVIEW_ROLES)
+            document_access(db, next_user, doc.id)
+            db.add(
+                m.Approval(
+                    document_id=doc.id,
+                    version_id=approval.version_id,
+                    requester_id=approval.requester_id,
+                    reviewer_id=next_id,
+                )
+            )
+            doc.status = "Submitted"
+            notify(db, next_id, f"Review step requested: {doc.title}", "approval", f"document:{doc.id}")
     notify(db, approval.requester_id, f"{doc.title}: {data.status}", "approval", f"document:{doc.id}")
     audit(
         db,

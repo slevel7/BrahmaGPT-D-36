@@ -123,3 +123,12 @@ class Command(Input):
     task_id: int | None = None
     priority: Literal["High", "Medium", "Low"] = "High"
     confirmed: bool = False
+
+
+class GroundedDraft(Input):
+    title: str = Field(min_length=1, max_length=200)
+    query: str = Field(min_length=1, max_length=1000)
+    template_id: int
+    document_ids: list[int] = Field(min_length=1, max_length=20)
+    recommendations: str = Field(default="", max_length=10000)
+    reviewer_ids: list[int] = Field(min_length=1, max_length=10)
