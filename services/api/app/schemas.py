@@ -126,6 +126,7 @@ class Command(Input):
 
 
 class GroundedDraft(Input):
+    use_ai: bool = False
     title: str = Field(min_length=1, max_length=200)
     query: str = Field(min_length=1, max_length=1000)
     template_id: int

@@ -11,6 +11,9 @@ def capabilities():
         if os.getenv("AI_MODEL") and (os.getenv("AI_API_KEY") or os.getenv("LOCAL_MODEL") == "true")
         else "configuration required",
         "model": os.getenv("AI_MODEL", ""),
+        "grounded_ai": "admin policy enabled"
+        if os.getenv("GROUNDED_AI_ALLOWED", "false").lower() == "true"
+        else "disabled by admin policy",
         "embeddings": "configured; worker indexing required"
         if os.getenv("EMBEDDING_MODEL")
         else "lexical search fallback",

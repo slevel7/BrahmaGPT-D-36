@@ -214,3 +214,36 @@ def test_review_chain_grants_draft_access_to_each_configured_reviewer(client):
         a for a in client.get("/approvals").json() if a["document_id"] == doc["id"] and a["status"] == "Submitted"
     )
     assert client.post(f"/approvals/{step['id']}/decision", json={"status": "Approved"}).status_code == 200
+
+
+def test_ai_selection_is_policy_gated_and_cannot_create_citations(client, monkeypatch):
+    import json
+    from app.adapters import AIProvider
+
+    data, _, _, _ = prepare(client)
+    data["use_ai"] = True
+    monkeypatch.setenv("GROUNDED_AI_ALLOWED", "false")
+    assert client.post("/documents/grounded-draft", json=data).status_code == 403
+    monkeypatch.setenv("GROUNDED_AI_ALLOWED", "true")
+    assert client.post("/documents/grounded-draft", json=data).status_code == 503
+    monkeypatch.setenv("AI_MODEL", "test-contract-model")
+    monkeypatch.setenv("LOCAL_MODEL", "true")
+
+    async def valid(self, messages, language="en"):
+        evidence = json.loads(messages[-1]["content"])["untrusted_evidence"]
+        return json.dumps({"chunk_ids": [evidence[0]["chunk_id"]]}), {"prompt_tokens": 12, "completion_tokens": 8}
+
+    monkeypatch.setattr(AIProvider, "complete", valid)
+    result = client.post("/documents/grounded-draft", json=data)
+    assert result.status_code == 201, result.text
+    assert "AI-selected" in result.json()["mode"]
+    evidence = client.get(f"/documents/{result.json()['id']}/evidence").json()
+    assert evidence["citations"][0]["passage"] == "DEMO review examined 42 files."
+
+    async def fabricated(self, messages, language="en"):
+        return '{"chunk_ids": [99999999], "official_reference": "invented"}', {}
+
+    monkeypatch.setattr(AIProvider, "complete", fabricated)
+    before = len(client.get("/documents").json())
+    assert client.post("/documents/grounded-draft", json=data).status_code == 502
+    assert len(client.get("/documents").json()) == before
