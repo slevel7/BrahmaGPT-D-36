@@ -1,3 +1,5 @@
+> Incremental update: see [current feature matrix](docs/FEATURE_MATRIX.md) and [grounded drafting guide](docs/GROUNDED_DRAFTING.md). The source-grounded draft and sequential approval extension supersedes older limitations below where explicitly stated. The full master specification remains incomplete.
+
 # BrahmaGPT implementation record
 
 The source prompt is the scope baseline. No government endorsement or production readiness is claimed.

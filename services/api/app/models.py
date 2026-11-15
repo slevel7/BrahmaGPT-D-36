@@ -236,3 +236,26 @@ class AIUsage(Base):
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
+class DraftEvidence(Base):
+    __tablename__ = "draft_evidence"
+    version_id: Mapped[int] = mapped_column(ForeignKey("document_versions.id"), primary_key=True)
+    template_version_id: Mapped[int] = mapped_column(ForeignKey("document_versions.id"))
+    citations: Mapped[list] = mapped_column(JSON)
+    recommendations: Mapped[str] = mapped_column(Text, default="")
+    reviewer_ids: Mapped[list] = mapped_column(JSON, default=list)
+
+
+# Normal application writes may append these records, never mutate history.
+# Deployment DB privileges must additionally prevent out-of-band SQL tampering.
+from sqlalchemy import event  # noqa: E402
+
+
+def immutable_record(mapper, connection, target):
+    raise ValueError("Historical versions, evidence and audit events are append-only")
+
+
+for immutable_model in (DocumentVersion, DraftEvidence, AuditLog):
+    event.listen(immutable_model, "before_update", immutable_record)
+    event.listen(immutable_model, "before_delete", immutable_record)

@@ -33,6 +33,7 @@ services:
       AI_MODEL: ${AI_MODEL:-}
       AI_API_KEY: ${AI_API_KEY:-}
       LOCAL_MODEL: ${LOCAL_MODEL:-false}
+      GROUNDED_AI_ALLOWED: ${GROUNDED_AI_ALLOWED:-false}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
       REDIS_URL: redis://redis:6379/0
       S3_BUCKET: ${S3_BUCKET:-}

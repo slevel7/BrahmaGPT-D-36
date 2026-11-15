@@ -14,7 +14,7 @@ export const translations = {
     pinned: "Pinned",
     profile: "Profile & security",
     send: "Send message",
-    greeting: "A clearer path through your work.",
+    greeting: "How can Brahma help?",
     subtitle: "Find an answer, shape a draft, or move a project forward.",
     placeholder: "Ask Brahma, or search your documents…",
     upload: "Upload documents",
