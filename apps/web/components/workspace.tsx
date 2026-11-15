@@ -706,32 +706,17 @@ function Login({ onLogin }: { onLogin: () => void }) {
   }
   return (
     <div className="login-page">
-      <div className="login-story">
-        <Brand />
-        <div>
-          <span className="eyebrow">A WORKSPACE FOR WHAT MATTERS</span>
-          <h1>
-            Clarity in every
-            <br />
-            conversation.
-            <br />
-            <em>Progress in every task.</em>
-          </h1>
-          <p>
-            Your documents, projects, and administrative work.
-            <br />
-            Connected in one thoughtful workspace.
-          </p>
-        </div>
-        <span>Developed by Singularity · Project D–36</span>
-      </div>
       <div className="login-form">
+        <Brand />
         <span className="demo-pill">
           <i />
           Demonstration Environment
         </span>
-        <h2>Welcome to BrahmaGPT</h2>
-        <p>Use a fictional demo account to explore the workspace.</p>
+        <h2>Sign in to BrahmaGPT</h2>
+        <p>
+          Internal employee workspace. Sign in with your authorised account or
+          explore the local demonstration.
+        </p>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -3118,8 +3103,8 @@ function GroundedDraftForm(
           </select>
         </label>
         <p>
-          Tag a document with template and obtain human approval to enable it here.
-          Supported placeholders: {"{{title}}"} and {"{{sources}}"}.
+          Tag a document with template and obtain human approval to enable it
+          here. Supported placeholders: {"{{title}}"} and {"{{sources}}"}.
         </p>
         <label>
           Evidence search query
